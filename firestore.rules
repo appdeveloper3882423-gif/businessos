@@ -25,6 +25,13 @@ service cloud.firestore {
         ).data.ownerId == request.auth.uid;
     }
 
+    match /users/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create, update: if signedIn()
+        && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
     match /organizations/{orgId} {
       allow create: if signedIn()
         && request.resource.data.ownerId == request.auth.uid;
@@ -49,7 +56,7 @@ service cloud.firestore {
           ).data.ownerId == request.auth.uid;
 
         allow update, delete: if isOwner(orgId)
-          && userId != resource.data.uid;
+          && userId != request.auth.uid;
       }
 
       match /{module}/{recordId} {
