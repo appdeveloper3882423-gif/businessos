@@ -1,0 +1,67 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(orgId) {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)
+        ).data.status == "active";
+    }
+
+    function isOwner(orgId) {
+      return signedIn()
+        && get(
+          /databases/$(database)/documents/organizations/$(orgId)
+        ).data.ownerId == request.auth.uid;
+    }
+
+    match /organizations/{orgId} {
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+
+      allow read: if isMember(orgId);
+
+      allow update: if isOwner(orgId)
+        && request.resource.data.ownerId == resource.data.ownerId;
+
+      allow delete: if false;
+
+      match /members/{userId} {
+        allow read: if isMember(orgId);
+
+        allow create: if signedIn()
+          && userId == request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.role == "owner"
+          && request.resource.data.status == "active"
+          && getAfter(
+            /databases/$(database)/documents/organizations/$(orgId)
+          ).data.ownerId == request.auth.uid;
+
+        allow update, delete: if isOwner(orgId)
+          && userId != resource.data.uid;
+      }
+
+      match /{module}/{recordId} {
+        allow read: if isMember(orgId);
+
+        allow create, update, delete: if isMember(orgId)
+          && module != "members";
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
