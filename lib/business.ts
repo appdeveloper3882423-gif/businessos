@@ -6,40 +6,32 @@ import {
   getDoc,
   onSnapshot,
   serverTimestamp,
-  setDoc,
   updateDoc,
   deleteDoc,
   runTransaction,
   type DocumentData,
   type Unsubscribe
 } from "firebase/firestore";
-
 import { db } from "@/lib/firebase";
 
-export type BusinessModule =
-  | "products"
-  | "sales"
-  | "expenses"
-  | "customers"
-  | "suppliers"
-  | "employees"
-  | "invoices"
-  | "tasks"
-  | "stockMovements"
-  | "notifications";
+export const modules = [
+  "products",
+  "sales",
+  "expenses",
+  "customers",
+  "suppliers",
+  "employees",
+  "invoices",
+  "tasks",
+  "stockMovements",
+  "notifications"
+] as const;
+
+export type BusinessModule = (typeof modules)[number];
 
 export type BusinessRecord = {
   id: string;
   [key: string]: unknown;
-};
-
-export type Workspace = {
-  id: string;
-  name: string;
-  ownerId: string;
-  currency: string;
-  country: string;
-  createdAt?: unknown;
 };
 
 export async function createWorkspace(
@@ -50,12 +42,9 @@ export async function createWorkspace(
 ) {
   const workspaceRef = doc(collection(db, "organizations"));
   const memberRef = doc(
-    db,
-    "organizations",
-    workspaceRef.id,
-    "members",
-    uid
+    db, "organizations", workspaceRef.id, "members", uid
   );
+  const profileRef = doc(db, "users", uid);
 
   await runTransaction(db, async (transaction) => {
     transaction.set(workspaceRef, {
@@ -72,24 +61,28 @@ export async function createWorkspace(
       status: "active",
       joinedAt: serverTimestamp()
     });
+
+    transaction.set(profileRef, {
+      workspaceId: workspaceRef.id,
+      email: "",
+      updatedAt: serverTimestamp()
+    });
   });
 
   return workspaceRef.id;
 }
 
-export async function getWorkspace(
-  workspaceId: string
-): Promise<Workspace | null> {
-  const snapshot = await getDoc(
-    doc(db, "organizations", workspaceId)
-  );
+export async function getUserWorkspace(uid: string) {
+  const snapshot = await getDoc(doc(db, "users", uid));
+  if (!snapshot.exists()) return null;
+  return (snapshot.data().workspaceId as string) || null;
+}
 
+export async function getWorkspace(workspaceId: string) {
+  const snapshot = await getDoc(doc(db, "organizations", workspaceId));
   if (!snapshot.exists()) return null;
 
-  return {
-    id: snapshot.id,
-    ...snapshot.data()
-  } as Workspace;
+  return { id: snapshot.id, ...snapshot.data() };
 }
 
 export async function isWorkspaceMember(
@@ -112,16 +105,12 @@ export function listenToRecords(
   return onSnapshot(
     collection(db, "organizations", workspaceId, module),
     (snapshot) => {
-      const records = snapshot.docs.map((item) => ({
+      callback(snapshot.docs.map((item) => ({
         id: item.id,
         ...item.data()
-      })) as BusinessRecord[];
-
-      callback(records);
+      })) as BusinessRecord[]);
     },
-    (error) => {
-      onError?.(error);
-    }
+    (error) => onError?.(error)
   );
 }
 
@@ -132,11 +121,7 @@ export async function addRecord(
 ) {
   return addDoc(
     collection(db, "organizations", workspaceId, module),
-    {
-      ...data,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    }
+    { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
   );
 }
 
@@ -148,10 +133,7 @@ export async function updateRecord(
 ) {
   return updateDoc(
     doc(db, "organizations", workspaceId, module, recordId),
-    {
-      ...data,
-      updatedAt: serverTimestamp()
-    }
+    { ...data, updatedAt: serverTimestamp() }
   );
 }
 
